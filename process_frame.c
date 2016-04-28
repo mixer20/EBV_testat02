@@ -13,6 +13,10 @@
 #include <stdlib.h>
 #include <math.h>
 
+void DetectRegions();
+void DrawBoundingBoxes();
+void DrawCenter();
+
 #define IMG_SIZE NUM_COLORS*OSC_CAM_MAX_IMAGE_WIDTH*OSC_CAM_MAX_IMAGE_HEIGHT
 
 const int nc = OSC_CAM_MAX_IMAGE_WIDTH;
@@ -24,8 +28,10 @@ float bgrImg[IMG_SIZE];
 const float avgFac = 0.99;
 const int frgLimit = 100;
 
-
 int TextColor;
+
+struct OSC_VIS_REGIONS ImgRegions;
+
 void SetBackground() {
 	int r, c;
 	//loop over the rows
@@ -96,31 +102,83 @@ void ChangeDetection() {
 
 				} else {
 					// update background image
-					bgrImg[r + c] = avgFac * bgrImg[r + c] + (1 - avgFac) * (float) data.u8TempImage[SENSORIMG][r+ c];
+					bgrImg[r + c] =
+							avgFac * bgrImg[r + c]
+									+ (1 - avgFac)
+											* (float) data.u8TempImage[SENSORIMG][r
+													+ c];
 					// set value for display
-					data.u8TempImage[BACKGROUND][r + c] = (unsigned char) bgrImg[r + c];
+					data.u8TempImage[BACKGROUND][r + c] =
+							(unsigned char) bgrImg[r + c];
 					//set foreground counter to zero
-					data.u8TempImage[INDEX1][r+c] = 1;
+					data.u8TempImage[INDEX1][r + c] = 1;
 				}
 			}
 		}
 	}
 }
 
-	void ProcessFrame() {
+void ProcessFrame() {
 //initialize counters
-		if (data.ipc.state.nStepCounter == 1) {
-			//use for initialization; only done in first step
-			memset(data.u8TempImage[THRESHOLD], 0, IMG_SIZE);
-			TextColor = CYAN;
-		} else {
-			//example for copying sensor image to background image
-			memcpy(data.u8TempImage[BACKGROUND], data.u8TempImage[SENSORIMG],
-			IMG_SIZE);
-			ChangeDetection();
-			Erode_3x3(THRESHOLD, INDEX0);
-			Dilate_3x3(INDEX0, THRESHOLD);
+	if (data.ipc.state.nStepCounter == 1) {
+		//use for initialization; only done in first step
+		memset(data.u8TempImage[THRESHOLD], 0, IMG_SIZE);
+		TextColor = CYAN;
+	} else {
+		//example for copying sensor image to background image
+		memcpy(data.u8TempImage[BACKGROUND], data.u8TempImage[SENSORIMG],
+		IMG_SIZE);
+		ChangeDetection();
+		Erode_3x3(THRESHOLD, INDEX0);
+		Dilate_3x3(INDEX0, THRESHOLD);
+		DetectRegions();
+	}
+}
 
+void DetectRegions() {
+	struct OSC_PICTURE Pic;
+	Pic.data = data.u8TempImage[INDEX0];
+	Pic.width = nc;
+	Pic.height = nr;
+	Pic.type = OSC_PICTURE_BINARY;
+
+	int i;
+	for (i = 0; i < IMG_SIZE; i++) {
+		data.u8TempImage[INDEX0][i] = data.u8TempImage[THRESHOLD][i] ? 1 : 0;
+	}
+
+	OscVisLabelBinary(&Pic, &ImgRegions);
+	OscVisGetRegionProperties(&ImgRegions);
+
+	OscVisGetRegionProperties(&ImgRegions);
+
+	DrawBoundingBoxes();
+	DrawCenter();
+
+}
+
+void DrawBoundingBoxes() {
+	uint16 o;
+	int MinArea = 500;
+
+	for (o = 0; o < ImgRegions.noOfObjects; o++) {
+		if (ImgRegions.objects[o].area > MinArea) {
+			DrawBoundingBox(ImgRegions.objects[o].bboxLeft,
+					ImgRegions.objects[o].bboxTop,
+					ImgRegions.objects[o].bboxRight,
+					ImgRegions.objects[o].bboxBottom, false, GREEN);
 		}
 	}
+}
+
+void DrawCenter() {
+	uint16 o;
+	int MinArea = 500;
+	for (o = 0; o < ImgRegions.noOfObjects; o++) {
+		if (ImgRegions.objects[o].area > MinArea) {
+			DrawLine(ImgRegions.objects[o].centroidX - 10, ImgRegions.objects[o].centroidY, ImgRegions.objects[o].centroidX +10, ImgRegions.objects[o].centroidY, RED);
+			DrawLine(ImgRegions.objects[o].centroidX, ImgRegions.objects[o].centroidY - 10, ImgRegions.objects[o].centroidX, ImgRegions.objects[o].centroidY + 10, RED);
+		}
+	}
+}
 
